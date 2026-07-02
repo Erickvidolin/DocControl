@@ -127,15 +127,16 @@ tbody tr:hover{background:var(--accent-soft)}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .pill.vigente{color:var(--ok);background:var(--ok-soft)}
 .pill.em-revisão,.pill.em-revisao{color:var(--warn);background:var(--warn-soft)}
+.pill.em-revisão-da-qualidade,.pill.em-revisao-da-qualidade{color:var(--accent2);background:var(--accent2-soft)}
 .pill.em-aprovação,.pill.em-aprovacao{color:var(--accent);background:var(--accent-soft)}
 .pill.em-elaboração,.pill.em-elaboracao{color:var(--muted);background:var(--surface3)}
 .pill.obsoleto{color:var(--danger);background:var(--danger-soft)}
 .due{font-size:12.5px;font-weight:650;white-space:nowrap;font-family:var(--mono)}
 .due .tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;display:block;margin-top:1px;font-family:var(--sans)}
 .due.ok{color:var(--muted)} .due.avencer{color:var(--warn)} .due.vencido{color:var(--danger)}
-.row-actions{display:flex;gap:5px;opacity:0;transition:opacity .1s}
+.row-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px;opacity:0;transition:opacity .1s;max-width:96px}
 tr:hover .row-actions{opacity:1}
-.icon-btn{width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:#fff;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.icon-btn{width:28px;height:28px;flex:none;border-radius:7px;border:1px solid var(--border);background:#fff;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
 .icon-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .icon-btn svg{width:15px;height:15px}
 .empty{padding:56px 20px;text-align:center;color:var(--faint)}
@@ -264,6 +265,16 @@ tr:hover .row-actions{opacity:1}
 .mi-right{font-family:var(--mono);font-size:11.5px;font-weight:700;flex:none;text-align:right;white-space:nowrap}
 .mi-right small{display:block;font-family:var(--sans);font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-top:1px}
 .dash-empty{padding:26px;text-align:center;color:var(--faint);font-size:12.5px}
+.docx-reader{border:1px solid var(--border);border-radius:var(--r2);padding:26px 30px;background:#fff;font-family:'Calibri','Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.55;color:#1a1a1a;min-height:200px}
+.docx-reader h1{font-size:19px;font-weight:700;margin:16px 0 10px}
+.docx-reader h2{font-size:16px;font-weight:700;margin:16px 0 8px}
+.docx-reader h3{font-size:14.5px;font-weight:700;margin:14px 0 6px}
+.docx-reader h4{font-size:13px;font-weight:700;margin:12px 0 6px;text-transform:uppercase;letter-spacing:.3px;color:var(--accent-dark)}
+.docx-reader p{margin:0 0 8px}
+.docx-reader p.docx-empty{margin:0 0 4px}
+.docx-reader table.docx-table{width:100%;border-collapse:collapse;font-size:12.5px;margin:12px 0}
+.docx-reader table.docx-table td{border:1px solid #d5dae2;padding:6px 9px;vertical-align:top}
+.docx-reader b{font-weight:700}
 .health{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .health-num{font-family:var(--mono);font-size:34px;font-weight:700;letter-spacing:-1.5px;line-height:1}
 .health-meter{flex:1;min-width:180px}
@@ -486,7 +497,7 @@ async function initSupabase(){
 
 const TIPOS=['Procedimento Operacional','Instrução de Trabalho','Política / Diretriz','Manual','Formulário','Registro','Especificação Técnica','Plano da Qualidade'];
 const SETORES=['Garantia da Qualidade','Controle da Qualidade','Produção','Engenharia','Regulatório / Assuntos Regulatórios','Compras / Suprimentos','Recursos Humanos','Comercial','Diretoria','Manutenção'];
-const STATUS=['Em Elaboração','Em Revisão','Em Aprovação','Vigente','Obsoleto'];
+const STATUS=['Em Elaboração','Em Revisão','Em Revisão da Qualidade','Em Aprovação','Vigente','Obsoleto'];
 
 const VIEWS={
   painel:{title:'Painel',sub:'Visão geral da gestão documental'},
@@ -698,6 +709,7 @@ function migrateDoc(d){
   if(d.cancelado===undefined)d.cancelado=false;
   if(d.canceladoInfo===undefined)d.canceladoInfo=null;
   if(d.revisorDesignado===undefined)d.revisorDesignado=null;
+  if(d.revisaoIncrementadaCiclo===undefined)d.revisaoIncrementadaCiclo=false;
   if(typeof d.conteudo!=='string')d.conteudo='';
   if(!Array.isArray(d.anexos))d.anexos=[];
   return d;
@@ -712,6 +724,7 @@ function docToRow(d){
     local:d.local,distribuicao:d.distribuicao,observacoes:d.observacoes,
     conteudo:d.conteudo||'',historico:d.historico||[],assinaturas:d.assinaturas||{},
     copias_controladas:d.copiasControladas||[],revisor_designado:d.revisorDesignado||null,
+    revisao_incrementada_ciclo:!!d.revisaoIncrementadaCiclo,
     cancelado:!!d.cancelado,cancelado_info:d.canceladoInfo||null,legado:!!d.legado,
     criado_em:d.criadoEm,atualizado_em:d.atualizadoEm
   };
@@ -726,6 +739,7 @@ function rowToDoc(r){
     local:r.local,distribuicao:r.distribuicao,observacoes:r.observacoes,
     conteudo:r.conteudo||'',historico:r.historico||[],assinaturas:r.assinaturas||{},
     copiasControladas:r.copias_controladas||[],revisorDesignado:r.revisor_designado,
+    revisaoIncrementadaCiclo:!!r.revisao_incrementada_ciclo,
     cancelado:!!r.cancelado,canceladoInfo:r.cancelado_info,legado:!!r.legado,
     criadoEm:r.criado_em,atualizadoEm:r.atualizado_em
   });
@@ -847,7 +861,7 @@ function buildStats(){
 function setView(k){activeView=k;document.getElementById('fStatus').value='';const v=VIEWS[k];document.getElementById('pageTitle').textContent=v.title;document.getElementById('pageSub').textContent=v.sub;if(window.innerWidth<=860)toggleSidebar(false);buildNav();render();}
 
 /* ════ DASHBOARD ════ */
-const STATUS_COLOR={'Vigente':'#1f9d57','Em Elaboração':'#5f6b7d','Em Revisão':'#c77f00','Em Aprovação':'#1366c4','Obsoleto':'#e23b4e'};
+const STATUS_COLOR={'Vigente':'#1f9d57','Em Elaboração':'#5f6b7d','Em Revisão':'#c77f00','Em Revisão da Qualidade':'#f47a1f','Em Aprovação':'#1366c4','Obsoleto':'#e23b4e'};
 function applyViewMode(){
   const dash=activeView==='painel';
   const admin=activeView==='__usuarios'||activeView==='__auditoria'||activeView==='__backup';
@@ -979,11 +993,179 @@ function render(){
       <td><span class="pill ${stCls}">${d.cancelado?'Cancelado':d.status}</span></td>
       <td><span class="due ${due.cls}">${due.txt}${due.tag?`<span class="tag">${due.tag}</span>`:''}</span></td>
       <td><div class="row-actions">
+        <button class="icon-btn" title="Ler documento" onclick="event.stopPropagation();readDoc('${d.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button class="icon-btn" title="Editar" onclick="event.stopPropagation();openEditor('${d.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
         <button class="icon-btn" title="${d.cancelado?'Excluído indisponível':'Excluir / Cancelar'}" onclick="event.stopPropagation();removeDocClick('${d.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
       </div></td>
     </tr>`;
   }).join('');
+}
+/* ── conversor .docx → HTML, preservando negrito/itálico/títulos/tabelas ── */
+function escHtml(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function runToHtml(r){
+  let out='';
+  for(const child of r.children){
+    if(child.tagName==='w:t')out+=escHtml(child.textContent);
+    else if(child.tagName==='w:tab')out+='&emsp;';
+    else if(child.tagName==='w:br'||child.tagName==='w:cr')out+='<br>';
+  }
+  if(!out)return '';
+  const rPr=r.getElementsByTagName('w:rPr')[0];
+  if(rPr){
+    if(rPr.getElementsByTagName('w:b').length)out='<b>'+out+'</b>';
+    if(rPr.getElementsByTagName('w:i').length)out='<i>'+out+'</i>';
+    if(rPr.getElementsByTagName('w:u').length)out='<u>'+out+'</u>';
+  }
+  return out;
+}
+function paragraphToHtml(p){
+  let inner='';
+  for(const child of p.children){
+    if(child.tagName==='w:r')inner+=runToHtml(child);
+    else if(child.tagName==='w:hyperlink'){for(const r of child.getElementsByTagName('w:r'))inner+=runToHtml(r);}
+  }
+  const pStyleEl=p.getElementsByTagName('w:pStyle')[0];
+  const style=(pStyleEl?pStyleEl.getAttribute('w:val'):'')||'';
+  const jcEl=p.getElementsByTagName('w:jc')[0];
+  const jc=jcEl?jcEl.getAttribute('w:val'):'';
+  const alignStyle=jc==='center'?' style="text-align:center"':jc==='right'?' style="text-align:right"':jc==='both'?' style="text-align:justify"':'';
+  if(!inner.trim())return '<p class="docx-empty">&nbsp;</p>';
+  const s=style.toLowerCase();
+  if(s.includes('title'))return `<h1${alignStyle}>${inner}</h1>`;
+  if(s.includes('heading1')||s==='ttulo1')return `<h2${alignStyle}>${inner}</h2>`;
+  if(s.includes('heading2'))return `<h3${alignStyle}>${inner}</h3>`;
+  if(s.includes('heading'))return `<h4${alignStyle}>${inner}</h4>`;
+  return `<p${alignStyle}>${inner}</p>`;
+}
+function tableToHtml(tbl){
+  let html='<table class="docx-table"><tbody>';
+  for(const tr of tbl.getElementsByTagName('w:tr')){
+    html+='<tr>';
+    for(const child of tr.children){
+      if(child.tagName==='w:tc'){
+        let cellInner='';
+        for(const p of child.getElementsByTagName('w:p'))cellInner+=paragraphToHtml(p);
+        const gridSpan=child.getElementsByTagName('w:gridSpan')[0];
+        const colspan=gridSpan?parseInt(gridSpan.getAttribute('w:val'),10):1;
+        html+=`<td${colspan>1?` colspan="${colspan}"`:''}>${cellInner||'&nbsp;'}</td>`;
+      }
+    }
+    html+='</tr>';
+  }
+  html+='</tbody></table>';
+  return html;
+}
+function docxBodyToHtml(xml){
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  const bodies=doc.getElementsByTagName('w:body');
+  if(!bodies.length)return '';
+  let html='';
+  for(const child of bodies[0].children){
+    if(child.tagName==='w:p')html+=paragraphToHtml(child);
+    else if(child.tagName==='w:tbl')html+=tableToHtml(child);
+  }
+  return html;
+}
+async function extractHtmlFromAttachedDocx(d){
+  const anexos=await loadAttachments(d.id);
+  if(!anexos.length)return{html:null,anexo:null};
+  const assinado=[...anexos].reverse().find(a=>/\.docx$/i.test(a.nome)&&/_ASSINADO/i.test(a.nome));
+  const candidato=assinado||[...anexos].reverse().find(a=>/\.docx$/i.test(a.nome));
+  if(!candidato)return{html:null,anexo:null};
+  try{
+    const{data:blob,error}=await supabase.storage.from('anexos').download(candidato.storagePath);
+    if(error)throw error;
+    const buf=await blob.arrayBuffer();
+    const xmlBuf=await readZipEntry(buf,'word/document.xml');
+    if(!xmlBuf)return{html:null,anexo:candidato};
+    const xml=new TextDecoder('utf-8').decode(xmlBuf);
+    return{html:docxBodyToHtml(xml),anexo:candidato};
+  }catch(e){console.error('falha ao converter anexo para HTML',e);return{html:null,anexo:candidato,erro:e.message||String(e)};}
+}
+async function gerarPdfDoc(id){
+  const d=data.find(x=>x.id===id);if(!d)return;
+  toast('Lendo arquivo anexado…');
+  const r=await extractHtmlFromAttachedDocx(d);
+  const win=window.open('','_blank');
+  if(!win){toast('Permita pop-ups para gerar o PDF');return;}
+  const historicoRows=(d.historico||[]).slice().sort((a,b)=>(b.data||'').localeCompare(a.data||'')).map(h=>`<tr><td>${esc(h.revisao)}</td><td>${fmt(h.data)}</td><td>${esc(h.descricao)||'—'}</td><td>${esc(h.responsavel)||'—'}</td></tr>`).join('');
+  const fonteNota=r.anexo?`Conteúdo do arquivo anexado: ${esc(r.anexo.nome)}${/_ASSINADO/i.test(r.anexo.nome)?' (versão com assinaturas eletrônicas gravadas)':''}`:'Nenhum arquivo Word anexado a este documento.';
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.codigo)} — ${esc(d.titulo)}</title>
+  <style>
+    body{font-family:'Calibri','Arial',Helvetica,sans-serif;color:#14233a;padding:40px;max-width:850px;margin:0 auto}
+    h1.doctitle{font-size:20px;margin-bottom:4px}
+    .sub{color:#5f6b7d;font-size:12px;margin-bottom:8px}
+    .src{color:#5f6b7d;font-size:10.5px;font-style:italic;margin-bottom:24px}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-bottom:24px;font-size:12px}
+    .meta div b{display:block;color:#5f6b7d;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
+    .content{font-size:13px;line-height:1.55;border:1px solid #e2e6ec;border-radius:8px;padding:24px;margin-bottom:24px}
+    .content h1{font-size:17px;margin:14px 0 8px}
+    .content h2{font-size:15px;margin:14px 0 8px}
+    .content h3{font-size:13.5px;margin:12px 0 6px}
+    .content h4{font-size:12.5px;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.3px}
+    .content p{margin:0 0 8px}
+    .content table.docx-table{width:100%;border-collapse:collapse;font-size:11.5px;margin:10px 0}
+    .content table.docx-table td{border:1px solid #ccd3dc;padding:5px 7px;vertical-align:top}
+    table.hist{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px}
+    table.hist th,table.hist td{border:1px solid #e2e6ec;padding:6px 8px;text-align:left}
+    table.hist th{background:#eef2f7}
+    .foot{margin-top:30px;font-size:10px;color:#93a0b0}
+    h2.section{font-size:13px;margin:22px 0 8px}
+  </style></head><body>
+  <h1 class="doctitle">${esc(d.codigo)} — ${esc(d.titulo)}</h1>
+  <div class="sub">${esc(d.tipo)} · ${esc(d.setor)} · Revisão ${esc(d.revisaoAtual)} · Status: ${d.cancelado?'Cancelado':d.status}</div>
+  <div class="src">${fonteNota}</div>
+  <div class="meta">
+    <div><b>Emissão</b>${fmt(d.dataEmissao)}</div>
+    <div><b>Vigência</b>${fmt(d.dataVigencia)}</div>
+    <div><b>Elaborado por</b>${esc(d.elaboradoPor)||'—'}</div>
+    <div><b>Aprovado por</b>${esc(d.aprovadoPor)||'—'}</div>
+  </div>
+  <h2 class="section">Conteúdo do arquivo anexado</h2>
+  <div class="content">${r.html||'<p>Nenhum conteúdo pôde ser extraído do arquivo anexado.</p>'}</div>
+  <h2 class="section">Histórico de revisões</h2>
+  <table class="hist"><thead><tr><th>Rev.</th><th>Data</th><th>Descrição</th><th>Responsável</th></tr></thead><tbody>${historicoRows||'<tr><td colspan="4">Sem histórico</td></tr>'}</tbody></table>
+  <div class="foot">Gerado pelo sistema de Controle de Documentos IBEG em ${new Date().toLocaleString('pt-BR')}</div>
+  <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},300);};<\/script>
+  </body></html>`);
+  win.document.close();
+}
+async function readDoc(id){
+  const d=data.find(x=>x.id===id);if(!d)return;
+  document.getElementById('modal').innerHTML=`
+    <div class="modal-head"><span class="pill ${d.cancelado?'obsoleto':d.status.toLowerCase().replace(/ /g,'-')}">${d.cancelado?'Cancelado':d.status}</span><h2 style="margin-left:4px">${esc(d.codigo)} · Rev. ${esc(d.revisaoAtual)}</h2><button class="x" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:19px;font-weight:800;margin-bottom:4px">${esc(d.titulo)}</div>
+      <div style="color:var(--muted);font-size:13px;margin-bottom:20px">${esc(d.tipo)} · ${esc(d.setor)} · Vigência: ${fmt(d.dataVigencia)}</div>
+      <div class="dash-empty">Lendo o arquivo anexado…</div>
+    </div>
+    <div class="modal-foot">
+      <div class="modal-foot-left"></div>
+      <div class="modal-foot-right">
+        <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+        <button class="btn btn-primary" onclick="viewDoc('${d.id}')">Ver ficha completa</button>
+      </div>
+    </div>`;
+  document.getElementById('overlay').classList.add('show');
+  const r=await extractHtmlFromAttachedDocx(d);
+  const fonteNota=r.anexo?`<div class="hint" style="margin-bottom:12px">Exibindo o arquivo anexado com a formatação original: <b>${esc(r.anexo.nome)}</b>${/_ASSINADO/i.test(r.anexo.nome)?' <span class="role-badge" style="margin-left:4px">com assinaturas eletrônicas gravadas</span>':''}</div>`
+    :`<div class="hint" style="margin-bottom:12px">Nenhum arquivo Word (.docx) anexado a este documento ainda.</div>`;
+  document.getElementById('modal').innerHTML=`
+    <div class="modal-head"><span class="pill ${d.cancelado?'obsoleto':d.status.toLowerCase().replace(/ /g,'-')}">${d.cancelado?'Cancelado':d.status}</span><h2 style="margin-left:4px">${esc(d.codigo)} · Rev. ${esc(d.revisaoAtual)}</h2><button class="x" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:19px;font-weight:800;margin-bottom:4px">${esc(d.titulo)}</div>
+      <div style="color:var(--muted);font-size:13px;margin-bottom:16px">${esc(d.tipo)} · ${esc(d.setor)} · Vigência: ${fmt(d.dataVigencia)}</div>
+      ${fonteNota}
+      <div class="docx-reader">${r.html||'<p style="color:var(--faint)">Nenhum conteúdo disponível para leitura.</p>'}</div>
+    </div>
+    <div class="modal-foot">
+      <div class="modal-foot-left"></div>
+      <div class="modal-foot-right">
+        <button class="btn btn-secondary" onclick="gerarPdfDoc('${d.id}')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Gerar PDF</button>
+        <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+        <button class="btn btn-primary" onclick="viewDoc('${d.id}')">Ver ficha completa</button>
+      </div>
+    </div>`;
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
@@ -999,18 +1181,24 @@ function workflowAction(d){
   let btns=[];
   if(d.status==='Em Revisão'){
     if(d.revisorDesignado&&d.revisorDesignado.userId===u.id)
-      btns.push(`<button class="btn btn-primary" onclick="signStage('${d.id}','revisao')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Assinar revisão e enviar p/ aprovação</button>`);
+      btns.push(`<button class="btn btn-primary" onclick="signStage('${d.id}','revisao')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Assinar revisão e enviar p/ Qualidade</button>`);
     else
       btns.push(`<span class="role-badge" style="margin:0">Aguardando revisão de ${esc(d.revisorDesignado?d.revisorDesignado.nome:'—')}</span>`);
   }
+  if(d.status==='Em Revisão da Qualidade'&&isQualidade()){
+    btns.push(`<button class="btn btn-primary" onclick="signStage('${d.id}','revisaoQualidadeAprovar')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Enviar para aprovação</button>`);
+    btns.push(`<button class="btn btn-secondary" onclick="signStage('${d.id}','revisaoQualidadeRetornar')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 0 8h-1"/></svg>Retornar para elaborador</button>`);
+  }
   if(d.status==='Em Aprovação'&&(hasPapel('aprovador')||isQualidade()))
     btns.push(`<button class="btn btn-primary" onclick="signStage('${d.id}','aprovacao')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>Assinar aprovação e tornar vigente</button>`);
-  if(d.status==='Vigente'&&isQualidade())
+  if(d.status==='Vigente'&&isQualidade()){
     btns.push(`<button class="btn btn-secondary" onclick="signStage('${d.id}','obsoletar')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>Tornar obsoleto</button>`);
-  if(isQualidade()){
+    btns.push(`<button class="btn btn-ghost" onclick="reCarimbarAssinaturas('${d.id}')" title="Regrava as assinaturas no arquivo Word anexado — útil se o arquivo assinado foi gerado antes de uma correção do sistema"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Regravar assinaturas no arquivo</button>`);
+  }
+  if(isQualidade()&&!['Em Revisão','Em Revisão da Qualidade'].includes(d.status)){
     // Qualidade pode enviar/reenviar QUALQUER documento (não só os novos) para revisão — funciona como uma nova etapa de elaboração
     const isNovo=d.status==='Em Elaboração';
-    const label=isNovo?'Solicitar revisão':(d.status==='Em Revisão'?'Reatribuir revisor':'Enviar para revisão');
+    const label=isNovo?'Solicitar revisão':'Enviar para revisão';
     const cls=isNovo?'btn-primary':'btn-ghost';
     btns.push(`<button class="btn ${cls}" onclick="requestReview('${d.id}')" title="${isNovo?'':'Reabre um novo ciclo de elaboração/revisão para este documento'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>${label}</button>`);
   }
@@ -1039,7 +1227,7 @@ async function viewDoc(id){
         ${d.observacoes?`<div class="di full"><div class="dk">Observações</div><div class="dv">${esc(d.observacoes)}</div></div>`:''}
       </div>
       <div class="section-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Assinaturas eletrônicas do fluxo${d.legado?' <span class="role-badge">registro legado — nomes informados antes da migração p/ assinatura eletrônica</span>':''}</div>
-      <div class="sig-grid">${sigBlockHtml('Solicitação de revisão (Qualidade)',sig.elaboracao,d.revisorDesignado?`<div class="sm" style="margin-top:6px">Revisor designado: <b>${esc(d.revisorDesignado.nome)}</b></div>`:'')}${sigBlockHtml('Revisão',sig.revisao)}${sigBlockHtml('Aprovação',sig.aprovacao)}</div>
+      <div class="sig-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${sigBlockHtml('Solicitação de revisão (Qualidade)',sig.elaboracao,d.revisorDesignado?`<div class="sm" style="margin-top:6px">Revisor designado: <b>${esc(d.revisorDesignado.nome)}</b></div>`:'')}${sigBlockHtml('Revisão do Elaborador',sig.revisao,sig.revisao&&sig.revisao.alteracoes?`<div class="sm" style="margin-top:6px;white-space:pre-wrap">Alterado: ${esc(sig.revisao.alteracoes)}</div>`:'')}${sigBlockHtml('Revisão da Qualidade',sig.revisaoQualidade,sig.revisaoQualidade&&sig.revisaoQualidade.justificativa?`<div class="sm" style="margin-top:6px;white-space:pre-wrap">Retornado: ${esc(sig.revisaoQualidade.justificativa)}</div>`:'')}${sigBlockHtml('Aprovação',sig.aprovacao)}</div>
       ${d.legado?`<div class="dview" style="margin-bottom:18px"><div class="di"><div class="dk">Elaborado por (informado)</div><div class="dv">${esc(d.elaboradoPor)||'—'}</div></div><div class="di"><div class="dk">Revisado por (informado)</div><div class="dv">${esc(d.revisadoPor)||'—'}</div></div><div class="di"><div class="dk">Aprovado por (informado)</div><div class="dv">${esc(d.aprovadoPor)||'—'}</div></div></div>`:''}
       <div class="section-label" style="display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>Conteúdo do documento<span style="flex:1"></span>${canEditConteudo(d)?`<button class="btn btn-secondary" style="height:29px;padding:5px 12px" onclick="editConteudo('${d.id}')">Editar conteúdo</button>`:''}</div>
       <div style="border:1px solid var(--border);border-radius:var(--r2);padding:14px 16px;background:var(--surface2);white-space:pre-wrap;font-size:13px;max-height:260px;overflow-y:auto;margin-bottom:6px">${d.conteudo?esc(d.conteudo):'<span style="color:var(--faint)">Nenhum conteúdo registrado ainda.'+(canEditConteudo(d)?' Clique em "Editar conteúdo" para escrever o corpo do documento diretamente no sistema.':'')+'</span>'}</div>
@@ -1056,6 +1244,7 @@ async function viewDoc(id){
     <div class="modal-foot">
       <div class="modal-foot-left"><button class="btn btn-danger" onclick="removeDocClick('${d.id}')">${d.cancelado?'Cancelado':'Excluir / Cancelar'}</button></div>
       <div class="modal-foot-right">
+        <button class="btn btn-secondary" onclick="gerarPdfDoc('${d.id}')"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Gerar PDF</button>
         ${workflowAction(d)}
         <button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
         <button class="btn btn-primary" onclick="openEditor('${d.id}')">Editar metadados</button>
@@ -1069,6 +1258,7 @@ function canManageAttachments(d){
   if(isQualidade())return true;
   if(!hasPapel('elaborador'))return false;
   if(d.status==='Em Elaboração')return true;
+  if(d.status!=='Em Revisão')return false; // após assinar a revisão, o acesso do elaborador é bloqueado até a Qualidade devolver o documento
   const u=currentUser();
   return !!(d.revisorDesignado&&u&&d.revisorDesignado.userId===u.id);
 }
@@ -1111,9 +1301,33 @@ async function loadAttachments(docId){
 }
 async function downloadAttachment(storagePath,nome){
   toast('Preparando download…');
-  const{data:sd,error}=await supabase.storage.from('anexos').createSignedUrl(storagePath,120);
-  if(error){toast('Falha ao gerar link de download: '+error.message);return;}
-  const a=document.createElement('a');a.href=sd.signedUrl;a.download=nome;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
+  try{
+    const{data:blob,error}=await supabase.storage.from('anexos').download(storagePath);
+    if(error)throw error;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nome;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  }catch(e){console.error(e);toast('Falha ao baixar o arquivo: '+(e.message||e));}
+}
+async function archiveVersionAsObsolete(d){
+  const existentes=await loadAttachments(d.id);
+  if(!existentes.length)return null;
+  const obsId=uid();
+  const obsDoc={...d};
+  obsDoc.id=obsId;
+  obsDoc.status='Obsoleto';
+  obsDoc.cancelado=false;
+  obsDoc.canceladoInfo=null;
+  obsDoc.criadoEm=Date.now();
+  obsDoc.atualizadoEm=Date.now();
+  obsDoc.observacoes=(d.observacoes?d.observacoes+' | ':'')+`Versão anterior arquivada automaticamente (rev. ${d.revisaoAtual}) ao anexar nova revisão do arquivo.`;
+  await saveDocRemote(obsDoc);
+  data.unshift(migrateDoc(obsDoc));
+  for(const a of existentes){
+    try{await supabase.from('anexos').update({documento_id:obsId}).eq('id',a.id);}catch(e){console.error('falha ao mover anexo para o card obsoleto',e);}
+  }
+  await appendAudit('versao_obsoleta',`Versão anterior (rev. ${d.revisaoAtual}) arquivada como card obsoleto com o(s) anexo(s) substituído(s)`,'documento',obsId,d.codigo);
+  return obsId;
 }
 async function handleAttachmentUpload(id,ev){
   const d=data.find(x=>x.id===id);const f=ev.target.files[0];ev.target.value='';
@@ -1123,6 +1337,11 @@ async function handleAttachmentUpload(id,ev){
   const u=currentUser();
   toast('Enviando arquivo…');
   try{
+    if(d.status!=='Em Elaboração'){
+      // já existe uma versão em circulação — a versão anterior (com sua revisão e anexo) vira um card Obsoleto
+      await archiveVersionAsObsolete(d);
+      d.anexos=[]; // o anexo anterior foi movido para o card obsoleto, o ativo começa limpo
+    }
     const anexoId=uid();
     const path=anexoStoragePath(d.id,anexoId,f.name);
     const{error:upErr}=await supabase.storage.from('anexos').upload(path,f,{upsert:false});
@@ -1132,7 +1351,7 @@ async function handleAttachmentUpload(id,ev){
     d.anexos=d.anexos||[];d.anexos.push({id:anexoId,nome:f.name,tipo:f.type,tamanho:f.size,storagePath:path,enviadoPor:u?u.nome:'—',ts:Date.now()});
     appendAudit('anexo_adicionado',`Anexo adicionado/atualizado: ${f.name} (${fmtBytes(f.size)})`,'documento',d.id,d.codigo);
     logEvent('updated','info','Anexo adicionado',`${d.codigo} — ${f.name}`,d.id);
-    viewDoc(id);toast('Anexo enviado');
+    fillFilters();render();viewDoc(id);toast('Anexo enviado');
   }catch(e){console.error(e);toast('Falha ao enviar o arquivo: '+(e.message||e));}
 }
 async function removeAttachment(id,i){
@@ -1294,10 +1513,11 @@ function listZipEntries(buf){
     const modTime=dv.getUint16(p+12,true),modDate=dv.getUint16(p+14,true);
     const crc=dv.getUint32(p+16,true);
     const compSize=dv.getUint32(p+20,true);
+    const uncompSize=dv.getUint32(p+24,true);
     const nameLen=dv.getUint16(p+28,true),extraLen=dv.getUint16(p+30,true),commentLen=dv.getUint16(p+32,true);
     const localOffset=dv.getUint32(p+42,true);
     const name=new TextDecoder().decode(new Uint8Array(buf,p+46,nameLen));
-    entries.push({name,method,modTime,modDate,crc,compSize,localOffset});
+    entries.push({name,method,modTime,modDate,crc,compSize,uncompSize,localOffset});
     p+=46+nameLen+extraLen+commentLen;
   }
   return entries;
@@ -1313,13 +1533,15 @@ function buildZip(entries){
   const localParts=[];const centralParts=[];let offset=0;const offsets=[];
   for(let i=0;i<entries.length;i++){
     const e=entries[i],nb=nameBytes[i];offsets.push(offset);
-    const lfh=concatBytes([u32(0x04034b50),u16(20),u16(0),u16(e.method),u16(e.modTime||0),u16(e.modDate||0x21),u32(e.crc),u32(e.data.length),u32(e.data.length),u16(nb.length),u16(0),nb]);
+    const uncomp=(e.uncompSize!==undefined?e.uncompSize:e.data.length);
+    const lfh=concatBytes([u32(0x04034b50),u16(20),u16(0),u16(e.method),u16(e.modTime||0),u16(e.modDate||0x21),u32(e.crc),u32(e.data.length),u32(uncomp),u16(nb.length),u16(0),nb]);
     localParts.push(lfh,e.data);offset+=lfh.length+e.data.length;
   }
   let cdSize=0;
   for(let i=0;i<entries.length;i++){
     const e=entries[i],nb=nameBytes[i];
-    const cdh=concatBytes([u32(0x02014b50),u16(20),u16(20),u16(0),u16(e.method),u16(e.modTime||0),u16(e.modDate||0x21),u32(e.crc),u32(e.data.length),u32(e.data.length),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offsets[i]),nb]);
+    const uncomp=(e.uncompSize!==undefined?e.uncompSize:e.data.length);
+    const cdh=concatBytes([u32(0x02014b50),u16(20),u16(20),u16(0),u16(e.method),u16(e.modTime||0),u16(e.modDate||0x21),u32(e.crc),u32(e.data.length),u32(uncomp),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offsets[i]),nb]);
     centralParts.push(cdh);cdSize+=cdh.length;
   }
   const cdOffset=offset;
@@ -1368,10 +1590,25 @@ async function stampDocxAttachment(sourceBuf,stamps){
   const xml=new TextDecoder('utf-8').decode(xmlBuf);
   const newXmlBytes=new TextEncoder().encode(stampDocxXml(xml,stamps));
   const newEntries=entries.map(e=>{
-    if(e.name==='word/document.xml')return{name:e.name,data:newXmlBytes,method:0,crc:crc32(newXmlBytes),modTime:e.modTime,modDate:e.modDate};
-    return{name:e.name,data:new Uint8Array(getEntryRawBytes(buf,e)),method:e.method,crc:e.crc,modTime:e.modTime,modDate:e.modDate};
+    if(e.name==='word/document.xml')return{name:e.name,data:newXmlBytes,method:0,crc:crc32(newXmlBytes),uncompSize:newXmlBytes.length,modTime:e.modTime,modDate:e.modDate};
+    return{name:e.name,data:new Uint8Array(getEntryRawBytes(buf,e)),method:e.method,crc:e.crc,uncompSize:e.uncompSize,modTime:e.modTime,modDate:e.modDate};
   });
   return new Blob([buildZip(newEntries)],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+}
+async function reCarimbarAssinaturas(id){
+  const d=data.find(x=>x.id===id);if(!d)return;
+  if(!isQualidade()){toast('Apenas Qualidade/Admin pode regravar assinaturas');return;}
+  if(!confirm('Isso vai gerar uma nova versão assinada do arquivo Word anexado (usando os dados de assinatura já registrados). Uma versão assinada anterior, se existir, será substituída. Útil quando o arquivo assinado foi gerado antes de uma correção do sistema. Continuar?'))return;
+  toast('Regravando assinaturas no arquivo…');
+  try{
+    const anexos=await loadAttachments(d.id);
+    const antigos=anexos.filter(a=>/_ASSINADO/i.test(a.nome));
+    for(const a of antigos){
+      try{await supabase.storage.from('anexos').remove([a.storagePath]);await supabase.from('anexos').delete().eq('id',a.id);}catch(e){console.warn('falha ao remover versão assinada antiga',e);}
+    }
+    await stampAttachmentsAfterApproval(d);
+    viewDoc(id);
+  }catch(e){console.error(e);toast('Falha ao regravar: '+(e.message||e));}
 }
 async function stampAttachmentsAfterApproval(d){
   if(typeof DecompressionStream==='undefined')return;
@@ -1532,7 +1769,6 @@ async function importFromDocx(ev){
     toast('Dados extraídos do Word — revise os campos antes de salvar');
   }catch(e){console.error(e);toast('Falha ao importar o .docx: '+(e.message||e));}
 }
-function labelStage(s){return {revisao:'Revisão',aprovacao:'Aprovação',obsoletar:'Obsolescência'}[s]||s;}
 function requestReview(id){
   const d=data.find(x=>x.id===id);if(!d)return;
   if(!isQualidade()){toast('Apenas Qualidade/Admin pode enviar para revisão');return;}
@@ -1570,20 +1806,26 @@ async function confirmRequestReview(id){
   if(statusAnterior!=='Em Elaboração'){
     // reabre um novo ciclo — assinaturas de etapas seguintes do ciclo anterior não valem mais para esta rodada
     delete d.assinaturas.revisao;
+    delete d.assinaturas.revisaoQualidade;
     delete d.assinaturas.aprovacao;
   }
+  d.revisaoIncrementadaCiclo=false;
   d.revisorDesignado={userId:revisor.id,nome:revisor.nome,cargo:revisor.cargo,designadoPor:u.nome,ts:Date.now()};
   d.status='Em Revisão';d.legado=false;d.atualizadoEm=Date.now();
   await saveDocRemote(d);
   logEvent('status','ok',statusAnterior==='Em Elaboração'?'Revisão solicitada':'Novo ciclo de revisão',`${d.codigo} — de "${statusAnterior}" para revisão · revisor designado: ${revisor.nome}`,d.id);
   await appendAudit('solicitacao_revisao',`Enviado para revisão por ${u.nome} (${u.cargo||''}) a partir do status "${statusAnterior}" — revisor designado: ${revisor.nome} — hash ${hash.slice(0,16)}…`,'documento',d.id,d.codigo);
+  await notifyUser(revisor.id,'revisao_solicitada',`Revisão solicitada: ${d.codigo}`,`${u.nome} solicitou que você revise "${d.titulo}".`,d.id,d.codigo);
   fillFilters();render();viewDoc(id);toast('Documento enviado para revisão');
 }
+function labelStage(s){return {revisao:'Revisão do Elaborador',revisaoQualidadeAprovar:'Revisão da Qualidade — envio para aprovação',revisaoQualidadeRetornar:'Revisão da Qualidade — retorno ao elaborador',aprovacao:'Aprovação',obsoletar:'Obsolescência'}[s]||s;}
 function signStage(id,stage){
   const d=data.find(x=>x.id===id);if(!d)return;
   const u=currentUser();if(!u)return;
   let extra='';
   if(stage==='obsoletar')extra=`<div class="field"><label>Justificativa <span class="req">*</span></label><textarea id="sg_just" placeholder="Motivo da obsolescência, documento substituto, etc."></textarea></div>`;
+  if(stage==='revisao')extra=`<div class="field"><label>O que foi alterado nesta revisão? <span class="req">*</span></label><textarea id="sg_alteracoes" placeholder="Descreva as alterações realizadas no documento antes de enviar para a Qualidade"></textarea></div>`;
+  if(stage==='revisaoQualidadeRetornar')extra=`<div class="field"><label>O que precisa ser ajustado? <span class="req">*</span></label><textarea id="sg_just" placeholder="Explique o que o elaborador deve corrigir/ajustar"></textarea></div>`;
   document.getElementById('modal').innerHTML=`
    <div class="modal-head"><h2>Assinatura eletrônica — ${labelStage(stage)}</h2><button class="x" onclick="viewDoc('${id}')">✕</button></div>
    <div class="modal-body">
@@ -1598,25 +1840,42 @@ function signStage(id,stage){
 async function confirmSign(id,stage){
   const d=data.find(x=>x.id===id);const u=currentUser();if(!d||!u)return;
   if(stage==='revisao'&&!(d.revisorDesignado&&d.revisorDesignado.userId===u.id)){toast('Apenas o revisor designado pode assinar esta etapa');viewDoc(id);return;}
+  if((stage==='revisaoQualidadeAprovar'||stage==='revisaoQualidadeRetornar')&&!isQualidade()){toast('Apenas Qualidade/Admin pode decidir esta etapa');viewDoc(id);return;}
   if(stage==='aprovacao'&&!(hasPapel('aprovador')||isQualidade())){toast('Você não tem o papel Aprovador');viewDoc(id);return;}
   if(stage==='obsoletar'&&!isQualidade()){toast('Apenas Qualidade/Admin pode obsoletar');viewDoc(id);return;}
   const pw=val('sg_pw'),err=document.getElementById('sgErr');
   const ok=await verifyPassword(u,pw);
   if(!ok){err.textContent='Senha incorreta.';err.classList.add('show');return;}
-  let justificativa='';
+  let justificativa='',alteracoes='';
   if(stage==='obsoletar'){justificativa=val('sg_just').trim();if(!justificativa){err.textContent='Informe a justificativa.';err.classList.add('show');return;}}
+  if(stage==='revisao'){alteracoes=val('sg_alteracoes').trim();if(!alteracoes){err.textContent='Descreva o que foi alterado nesta revisão.';err.classList.add('show');return;}}
+  if(stage==='revisaoQualidadeRetornar'){justificativa=val('sg_just').trim();if(!justificativa){err.textContent='Informe o que precisa ser ajustado.';err.classList.add('show');return;}}
   const hash=await sha256(JSON.stringify({codigo:d.codigo,titulo:d.titulo,revisaoAtual:d.revisaoAtual,status:d.status,historico:d.historico,ts:Date.now()}));
   const sig={userId:u.id,nome:u.nome,cargo:u.cargo,papeis:u.papeis,ts:Date.now(),hash};
   d.assinaturas=d.assinaturas||{};
   d.legado=false;
-  if(stage==='revisao'){d.assinaturas.revisao=sig;d.status='Em Aprovação';}
+  if(stage==='revisao'){
+    sig.alteracoes=alteracoes;
+    d.assinaturas.revisao=sig;
+    d.status='Em Revisão da Qualidade';
+    if(!d.revisaoIncrementadaCiclo){
+      const novaRev=String((parseInt(d.revisaoAtual,10)||0)+1).padStart(2,'0');
+      d.historico=d.historico||[];
+      d.historico.push({revisao:novaRev,data:today(),descricao:alteracoes,responsavel:u.nome});
+      d.revisaoAtual=novaRev;
+      d.revisaoIncrementadaCiclo=true;
+    }
+  }
+  else if(stage==='revisaoQualidadeAprovar'){d.assinaturas.revisaoQualidade=sig;d.status='Em Aprovação';}
+  else if(stage==='revisaoQualidadeRetornar'){sig.justificativa=justificativa;d.assinaturas.revisaoQualidade=sig;d.status='Em Revisão';}
   else if(stage==='aprovacao'){d.assinaturas.aprovacao=sig;d.status='Vigente';if(!d.dataVigencia)d.dataVigencia=today();}
   else if(stage==='obsoletar'){d.status='Obsoleto';d.observacoes=(d.observacoes?d.observacoes+' | ':'')+'Obsoletado: '+justificativa;}
   d.atualizadoEm=Date.now();
   await saveDocRemote(d);
   logEvent('status',stage==='obsoletar'?'danger':'ok','Assinatura eletrônica',`${d.codigo} — ${labelStage(stage)} assinada por ${u.nome}`,d.id);
-  await appendAudit('assinatura',`${labelStage(stage)} assinada por ${u.nome} (${u.cargo||''}) — hash ${hash.slice(0,16)}…`+(justificativa?` · Justificativa: ${justificativa}`:''),'documento',d.id,d.codigo);
+  await appendAudit('assinatura',`${labelStage(stage)} assinada por ${u.nome} (${u.cargo||''}) — hash ${hash.slice(0,16)}…`+(alteracoes?` · Alterações: ${alteracoes}`:'')+(justificativa?` · Justificativa: ${justificativa}`:''),'documento',d.id,d.codigo);
   if(stage==='aprovacao')await stampAttachmentsAfterApproval(d);
+  await notifyWorkflowTransition(d,stage,u);
   fillFilters();render();viewDoc(id);toast('Assinatura registrada');
 }
 async function removeDocClick(id){
@@ -1937,11 +2196,60 @@ function maybeNotifyDesktop(alerts){
 }
 function updateBadge(){
   const alerts=syncDerived(),vis=alerts.filter(a=>!notifState.dismissed[a.key]);
-  const n=vis.filter(a=>!notifState.read[a.key]).length+notifState.events.filter(e=>!e.read).length;
+  const n=vis.filter(a=>!notifState.read[a.key]).length+notifState.events.filter(e=>!e.read).length+targetedNotifs.filter(x=>!x.lida).length;
   const b=document.getElementById('bellBadge');
   if(b){b.textContent=n>99?'99+':n;b.style.display=n?'grid':'none';}
   maybeNotifyDesktop(vis);saveNotif();
   if(document.getElementById('notifPanel').classList.contains('open'))renderNotif();
+}
+
+/* ── notificações direcionadas (tabela "notificacoes", sincronizada em tempo real) ── */
+let targetedNotifs=[];
+async function attachTargetedNotifListener(){
+  const u=currentUser();if(!u)return;
+  const{data:rows,error}=await supabase.from('notificacoes').select('*').eq('user_id',u.id).order('criado_em',{ascending:false});
+  if(error){console.error('notificacoes select',error);return;}
+  targetedNotifs=rows||[];
+  updateBadge();
+  supabase.channel('notif-'+u.id).on('postgres_changes',{event:'*',schema:'public',table:'notificacoes',filter:'user_id=eq.'+u.id},async()=>{
+    const{data:rows2}=await supabase.from('notificacoes').select('*').eq('user_id',u.id).order('criado_em',{ascending:false});
+    targetedNotifs=rows2||[];
+    updateBadge();
+  }).subscribe();
+}
+async function notifyUser(userId,tipo,titulo,mensagem,documentoId,documentoCodigo){
+  if(!userId)return;
+  try{await supabase.from('notificacoes').insert({user_id:userId,tipo,titulo,mensagem,documento_id:documentoId||null,documento_codigo:documentoCodigo||null,lida:false,criado_em:Date.now()});}catch(e){console.error('notifyUser falhou',e);}
+}
+async function notifyRoleUsers(papel,tipo,titulo,mensagem,documentoId,documentoCodigo,exceptUserId){
+  const alvos=activeUsers().filter(x=>Array.isArray(x.papeis)&&x.papeis.includes(papel)&&x.id!==exceptUserId);
+  for(const a of alvos)await notifyUser(a.id,tipo,titulo,mensagem,documentoId,documentoCodigo);
+}
+async function notifyWorkflowTransition(d,stage,u){
+  try{
+    if(stage==='revisao'){
+      await notifyRoleUsers('qualidade','revisao_recebida',`Documento revisado: ${d.codigo}`,`${u.nome} concluiu a revisão de "${d.titulo}" e enviou para a Qualidade.`,d.id,d.codigo,u.id);
+    }else if(stage==='revisaoQualidadeAprovar'){
+      await notifyRoleUsers('aprovador','aguardando_aprovacao',`Aguardando aprovação: ${d.codigo}`,`"${d.titulo}" foi enviado para aprovação.`,d.id,d.codigo);
+    }else if(stage==='revisaoQualidadeRetornar'){
+      if(d.revisorDesignado)await notifyUser(d.revisorDesignado.userId,'retorno_ajuste',`Ajuste solicitado: ${d.codigo}`,`A Qualidade retornou "${d.titulo}" para ajustes.`,d.id,d.codigo);
+    }else if(stage==='aprovacao'){
+      await notifyRoleUsers('qualidade','documento_vigente',`Documento vigente: ${d.codigo}`,`"${d.titulo}" foi aprovado e está vigente.`,d.id,d.codigo,u.id);
+      if(d.revisorDesignado)await notifyUser(d.revisorDesignado.userId,'documento_vigente',`Documento vigente: ${d.codigo}`,`"${d.titulo}", que você revisou, foi aprovado e está vigente.`,d.id,d.codigo);
+    }
+  }catch(e){console.error('notifyWorkflowTransition falhou',e);}
+}
+async function notifTargetedOpen(id,documentoId){
+  const n=targetedNotifs.find(x=>x.id===id);if(n)n.lida=true;
+  try{await supabase.from('notificacoes').update({lida:true}).eq('id',id);}catch(e){}
+  updateBadge();
+  if(documentoId&&documentoId!=='null'){toggleNotif(false);viewDoc(documentoId);}else{renderNotif();}
+}
+async function notifTargetedDismiss(id,ev){
+  if(ev)ev.stopPropagation();
+  targetedNotifs=targetedNotifs.filter(x=>x.id!==id);
+  try{await supabase.from('notificacoes').delete().eq('id',id);}catch(e){}
+  updateBadge();renderNotif();
 }
 
 function relTime(ts){const s=(Date.now()-ts)/1000;if(s<60)return 'agora';if(s<3600)return 'há '+Math.floor(s/60)+' min';if(s<86400)return 'há '+Math.floor(s/3600)+' h';const d=Math.floor(s/86400);if(d<7)return 'há '+d+' dia(s)';return new Date(ts).toLocaleDateString('pt-BR');}
@@ -1962,9 +2270,13 @@ function renderNotif(){
     <div class="ns-row"><span>Notificações na área de trabalho</span><input type="checkbox" ${s.desktop?'checked':''} onchange="notifSetChk('desktop',this.checked)"></div>
   </div>
   <div class="notif-list">`;
-  if(!alerts.length&&!events.length){
+  if(!alerts.length&&!events.length&&!targetedNotifs.length){
     html+=`<div class="notif-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><p>Tudo em dia — nenhuma notificação.</p></div>`;
   }else{
+    if(targetedNotifs.length){
+      html+=`<div class="notif-sec">Para você · ${targetedNotifs.length}</div>`;
+      html+=targetedNotifs.map(n=>`<div class="notif-item ${n.lida?'':'unread'}" onclick="notifTargetedOpen('${n.id}','${n.documento_id||''}')"><span class="ni-dot ${n.tipo==='retorno_ajuste'?'warn':'info'}"></span><div class="ni-body"><div class="ni-title">${esc(n.titulo)}</div><div class="ni-msg">${esc(n.mensagem||'')}</div><div class="ni-time">${relTime(n.criado_em)}</div></div><button class="ni-x" title="Remover" onclick="notifTargetedDismiss('${n.id}',event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>`).join('');
+    }
     if(alerts.length){
       html+=`<div class="notif-sec">Alertas · ${alerts.length}</div>`;
       html+=alerts.map(a=>`<div class="notif-item ${notifState.read[a.key]?'':'unread'}" onclick="notifOpen('${a.docId}','${a.key}',false,'')"><span class="ni-dot ${a.sev}"></span><div class="ni-body"><div class="ni-title">${esc(a.title)}</div><div class="ni-msg">${esc(a.msg)}</div></div><button class="ni-x" title="Arquivar alerta" onclick="notifDismiss('${a.key}',event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>`).join('');
@@ -1989,6 +2301,7 @@ function notifSetChk(f,v){notifSettings[f]=v;saveNotifSettings();if(f==='desktop
 function boot(){
   if(!requireLogin())return;
   fillFilters();updateArrows();buildNav();render();updateFbStatus();checkTamperBanner();
+  attachTargetedNotifListener();
 }
 async function startApp(){
   const box=document.getElementById('loginBox');
