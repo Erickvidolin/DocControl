@@ -547,10 +547,23 @@ let users=[];
 let usersFirstSnapReady=false,usersFirstSnapResolve=null;
 const usersFirstSnap=new Promise(res=>usersFirstSnapResolve=res);
 function mapPerfil(r){return{id:r.id,nome:r.nome,cargo:r.cargo,papeis:r.papeis||[],ativo:r.ativo!==false,criadoEm:r.criado_em};}
+/* --- busca robusta: se a primeira tentativa vier vazia logo após o login,
+   tenta de novo antes de aceitar — evita a corrida em que a autenticação
+   ainda não propagou totalmente para a primeira requisição --- */
+async function fetchAllRowsRetry(table,orderCol){
+  for(let attempt=0;attempt<4;attempt++){
+    let q=supabase.from(table).select('*');
+    if(orderCol)q=q.order(orderCol);
+    const{data,error}=await q;
+    if(error){console.error(table+' fetch error',error);if(attempt===3)return[];await new Promise(r=>setTimeout(r,600));continue;}
+    if((!data||data.length===0)&&attempt<3){await new Promise(r=>setTimeout(r,600));continue;}
+    return data||[];
+  }
+  return[];
+}
 async function attachUsersListener(){
-  const{data:rows,error}=await supabase.from('perfis').select('*');
-  if(error){console.error('perfis select',error);toast('Erro ao carregar usuários: '+error.message);}
-  users=(rows||[]).map(mapPerfil);
+  const rows=await fetchAllRowsRetry('perfis');
+  users=rows.map(mapPerfil);
   if(!usersFirstSnapReady){usersFirstSnapReady=true;usersFirstSnapResolve();}
   buildNav();renderUserArea();
   if(activeView==='__usuarios')renderUsersView();
@@ -588,16 +601,20 @@ function initials(nome){return (nome||'?').trim().split(/\s+/).slice(0,2).map(w=
 let auditState={entries:[]};
 function mapAudit(r){return{seq:r.seq,ts:r.ts,userId:r.user_id,userNome:r.user_nome,userCargo:r.user_cargo,papeis:r.papeis||[],acao:r.acao,alvoTipo:r.alvo_tipo,alvoId:r.alvo_id,alvoCodigo:r.alvo_codigo,detalhe:r.detalhe,prev:r.prev,hash:r.hash};}
 async function attachAuditListener(){
-  const{data:rows,error}=await supabase.from('auditoria').select('*').order('seq');
-  if(error){console.error('auditoria select',error);toast('Erro ao carregar auditoria: '+error.message);}
-  auditState={entries:(rows||[]).map(mapAudit)};
+  const rows=await fetchAllRowsRetry('auditoria','seq');
+  auditState={entries:rows.map(mapAudit)};
   checkTamperBanner();
   if(activeView==='__auditoria')renderAuditView();
   supabase.channel('auditoria-changes').on('postgres_changes',{event:'*',schema:'public',table:'auditoria'},async()=>{
     const{data:rows2}=await supabase.from('auditoria').select('*').order('seq');
-    auditState={entries:(rows2||[]).map(mapAudit)};
-    checkTamperBanner();
-    if(activeView==='__auditoria')renderAuditView();
+    // a trilha de auditoria só cresce — se uma atualização em tempo real vier com
+    // menos linhas que já temos localmente, é sinal de corrida/instabilidade da
+    // rede, não de dado real perdido; ignora nesse caso
+    if(rows2&&rows2.length>=auditState.entries.length){
+      auditState={entries:rows2.map(mapAudit)};
+      checkTamperBanner();
+      if(activeView==='__auditoria')renderAuditView();
+    }
   }).subscribe();
 }
 async function appendAudit(acao,detalhe,alvoTipo,alvoId,alvoCodigo){
@@ -676,8 +693,7 @@ async function doLogin(){
   const{data,error}=await supabase.auth.signInWithPassword({email,password:pw});
   if(error){err.textContent='E-mail ou senha incorretos.';err.classList.add('show');if(btn){btn.disabled=false;btn.textContent='Entrar';}return;}
   currentSession=data.session;
-  const{data:rows}=await supabase.from('perfis').select('*');
-  users=(rows||[]).map(mapPerfil);
+  await ensureDataLoaded(); // agora que a sessão está confirmada, carrega/recarrega perfis, documentos e auditoria de verdade
   if(!currentUser()){err.textContent='Login válido, mas não há perfil vinculado a esta conta (ou ele está inativo). Contate um Admin.';err.classList.add('show');await supabase.auth.signOut();currentSession=null;if(btn){btn.disabled=false;btn.textContent='Entrar';}return;}
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('loginBox').innerHTML='';
@@ -747,9 +763,8 @@ function rowToDoc(r){
 let documentosFirstSnapReady=false,documentosFirstSnapResolve=null;
 const documentosFirstSnap=new Promise(res=>documentosFirstSnapResolve=res);
 async function attachDocumentosListener(){
-  const{data:rows,error}=await supabase.from('documentos').select('*');
-  if(error){console.error('documentos select',error);toast('Erro ao carregar documentos: '+error.message);}
-  data=(rows||[]).map(rowToDoc);
+  const rows=await fetchAllRowsRetry('documentos');
+  data=rows.map(rowToDoc);
   if(!documentosFirstSnapReady){documentosFirstSnapReady=true;documentosFirstSnapResolve();}
   fillFilters();render();
   supabase.channel('documentos-changes').on('postgres_changes',{event:'*',schema:'public',table:'documentos'},async()=>{
@@ -1000,8 +1015,42 @@ function render(){
     </tr>`;
   }).join('');
 }
-/* ── conversor .docx → HTML, preservando negrito/itálico/títulos/tabelas ── */
+/* ── conversor .docx → HTML, preservando negrito/itálico/títulos/tabelas/listas numeradas ── */
 function escHtml(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function toRomanNumeral(n){
+  const vals=[[1000,'m'],[900,'cm'],[500,'d'],[400,'cd'],[100,'c'],[90,'xc'],[50,'l'],[40,'xl'],[10,'x'],[9,'ix'],[5,'v'],[4,'iv'],[1,'i']];
+  let r='';for(const[v,s]of vals){while(n>=v){r+=s;n-=v;}}return r;
+}
+function listMarker(fmt,n){
+  if(fmt==='bullet')return '•';
+  if(fmt==='lowerLetter')return String.fromCharCode(96+((n-1)%26)+1)+'.';
+  if(fmt==='upperLetter')return String.fromCharCode(64+((n-1)%26)+1)+'.';
+  if(fmt==='lowerRoman')return toRomanNumeral(n)+'.';
+  if(fmt==='upperRoman')return toRomanNumeral(n).toUpperCase()+'.';
+  return n+'.';
+}
+function parseNumberingXml(xml){
+  if(!xml)return{};
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  const abstractNums={};
+  for(const an of doc.getElementsByTagName('w:abstractNum')){
+    const id=an.getAttribute('w:abstractNumId');
+    const levels={};
+    for(const lvl of an.getElementsByTagName('w:lvl')){
+      const ilvl=lvl.getAttribute('w:ilvl');
+      const fmtEl=lvl.getElementsByTagName('w:numFmt')[0];
+      levels[ilvl]=fmtEl?fmtEl.getAttribute('w:val'):'decimal';
+    }
+    abstractNums[id]=levels;
+  }
+  const result={};
+  for(const num of doc.getElementsByTagName('w:num')){
+    const id=num.getAttribute('w:numId');
+    const abstractEl=num.getElementsByTagName('w:abstractNumId')[0];
+    if(abstractEl)result[id]=abstractNums[abstractEl.getAttribute('w:val')]||{};
+  }
+  return result; // { numId: { ilvl: formato } }
+}
 function runToHtml(r){
   let out='';
   for(const child of r.children){
@@ -1018,7 +1067,7 @@ function runToHtml(r){
   }
   return out;
 }
-function paragraphToHtml(p){
+function paragraphToHtml(p,numbering,counters){
   let inner='';
   for(const child of p.children){
     if(child.tagName==='w:r')inner+=runToHtml(child);
@@ -1028,23 +1077,41 @@ function paragraphToHtml(p){
   const style=(pStyleEl?pStyleEl.getAttribute('w:val'):'')||'';
   const jcEl=p.getElementsByTagName('w:jc')[0];
   const jc=jcEl?jcEl.getAttribute('w:val'):'';
-  const alignStyle=jc==='center'?' style="text-align:center"':jc==='right'?' style="text-align:right"':jc==='both'?' style="text-align:justify"':'';
+  const alignStyle=jc==='center'?'text-align:center':jc==='right'?'text-align:right':jc==='both'?'text-align:justify':'';
   if(!inner.trim())return '<p class="docx-empty">&nbsp;</p>';
+  // lista numerada/com marcador
+  const numPr=p.getElementsByTagName('w:numPr')[0];
+  if(numPr&&numbering){
+    const numIdEl=numPr.getElementsByTagName('w:numId')[0];
+    const ilvlEl=numPr.getElementsByTagName('w:ilvl')[0];
+    const numId=numIdEl?numIdEl.getAttribute('w:val'):null;
+    const ilvl=ilvlEl?ilvlEl.getAttribute('w:val'):'0';
+    if(numId&&numId!=='0'){
+      const fmt=(numbering[numId]||{})[ilvl]||'decimal';
+      const key=numId+':'+ilvl;
+      counters[key]=(counters[key]||0)+1;
+      const marker=listMarker(fmt,counters[key]);
+      const indent=20+parseInt(ilvl,10)*20;
+      const styleAttr=[`margin:0 0 6px;padding-left:0;margin-left:${indent}px`,alignStyle].filter(Boolean).join(';');
+      return `<p style="${styleAttr}"><span style="display:inline-block;min-width:24px;margin-left:-24px;text-align:${fmt==='bullet'?'center':'left'}">${marker}</span>${inner}</p>`;
+    }
+  }
   const s=style.toLowerCase();
-  if(s.includes('title'))return `<h1${alignStyle}>${inner}</h1>`;
-  if(s.includes('heading1')||s==='ttulo1')return `<h2${alignStyle}>${inner}</h2>`;
-  if(s.includes('heading2'))return `<h3${alignStyle}>${inner}</h3>`;
-  if(s.includes('heading'))return `<h4${alignStyle}>${inner}</h4>`;
-  return `<p${alignStyle}>${inner}</p>`;
+  const alignAttr=alignStyle?` style="${alignStyle}"`:'';
+  if(s.includes('title'))return `<h1${alignAttr}>${inner}</h1>`;
+  if(s.includes('heading1')||s==='ttulo1')return `<h2${alignAttr}>${inner}</h2>`;
+  if(s.includes('heading2'))return `<h3${alignAttr}>${inner}</h3>`;
+  if(s.includes('heading'))return `<h4${alignAttr}>${inner}</h4>`;
+  return `<p${alignAttr}>${inner}</p>`;
 }
-function tableToHtml(tbl){
+function tableToHtml(tbl,numbering,counters){
   let html='<table class="docx-table"><tbody>';
   for(const tr of tbl.getElementsByTagName('w:tr')){
     html+='<tr>';
     for(const child of tr.children){
       if(child.tagName==='w:tc'){
         let cellInner='';
-        for(const p of child.getElementsByTagName('w:p'))cellInner+=paragraphToHtml(p);
+        for(const p of child.getElementsByTagName('w:p'))cellInner+=paragraphToHtml(p,numbering,counters);
         const gridSpan=child.getElementsByTagName('w:gridSpan')[0];
         const colspan=gridSpan?parseInt(gridSpan.getAttribute('w:val'),10):1;
         html+=`<td${colspan>1?` colspan="${colspan}"`:''}>${cellInner||'&nbsp;'}</td>`;
@@ -1055,32 +1122,134 @@ function tableToHtml(tbl){
   html+='</tbody></table>';
   return html;
 }
-function docxBodyToHtml(xml){
+function docxBodyToHtml(xml,numberingXml){
   const doc=new DOMParser().parseFromString(xml,'application/xml');
   const bodies=doc.getElementsByTagName('w:body');
   if(!bodies.length)return '';
+  const numbering=parseNumberingXml(numberingXml);
+  const counters={};
   let html='';
   for(const child of bodies[0].children){
-    if(child.tagName==='w:p')html+=paragraphToHtml(child);
-    else if(child.tagName==='w:tbl')html+=tableToHtml(child);
+    if(child.tagName==='w:p')html+=paragraphToHtml(child,numbering,counters);
+    else if(child.tagName==='w:tbl')html+=tableToHtml(child,numbering,counters);
   }
+  return html;
+}
+
+/* ── conversor .xlsx → HTML, preservando grade de células e mesclagens ── */
+function xlsxColRowFromRef(ref){
+  const m=ref.match(/([A-Z]+)(\d+)/);
+  let col=0;for(let i=0;i<m[1].length;i++)col=col*26+(m[1].charCodeAt(i)-64);
+  return[col,parseInt(m[2],10)];
+}
+function parseSharedStrings(xml){
+  if(!xml)return[];
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  return[...doc.getElementsByTagName('si')].map(si=>{
+    let text='';
+    for(const t of si.getElementsByTagName('t'))text+=t.textContent;
+    return text;
+  });
+}
+function xlsxSheetToHtml(sheetXml,sharedStrings){
+  const doc=new DOMParser().parseFromString(sheetXml,'application/xml');
+  const merges={},covered=new Set();
+  for(const mc of doc.getElementsByTagName('mergeCell')){
+    const[start,end]=mc.getAttribute('ref').split(':');
+    const[c1,r1]=xlsxColRowFromRef(start),[c2,r2]=xlsxColRowFromRef(end||start);
+    merges[r1+','+c1]={rowspan:r2-r1+1,colspan:c2-c1+1};
+    for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)if(!(r===r1&&c===c1))covered.add(r+','+c);
+  }
+  const rows=doc.getElementsByTagName('row');
+  let maxCol=0;const grid={};
+  for(const row of rows){
+    const r=parseInt(row.getAttribute('r'),10);
+    grid[r]=grid[r]||{};
+    for(const cell of row.getElementsByTagName('c')){
+      const[c]=xlsxColRowFromRef(cell.getAttribute('r'));
+      const type=cell.getAttribute('t');
+      const vEl=cell.getElementsByTagName('v')[0];
+      let val='';
+      if(type==='s'&&vEl)val=sharedStrings[parseInt(vEl.textContent,10)]||'';
+      else if(type==='inlineStr'){const t=cell.getElementsByTagName('t')[0];val=t?t.textContent:'';}
+      else if(vEl)val=vEl.textContent;
+      grid[r][c]=val;
+      if(c>maxCol)maxCol=c;
+    }
+  }
+  const rowKeys=Object.keys(grid).map(Number).sort((a,b)=>a-b);
+  if(!rowKeys.length)return'';
+  let html='<table class="docx-table xlsx-table">';
+  for(const r of rowKeys){
+    html+='<tr>';
+    for(let c=1;c<=maxCol;c++){
+      if(covered.has(r+','+c))continue;
+      const mi=merges[r+','+c];
+      const attrs=mi?` rowspan="${mi.rowspan}" colspan="${mi.colspan}"`:'';
+      html+=`<td${attrs}>${escHtml(grid[r][c]||'')}</td>`;
+    }
+    html+='</tr>';
+  }
+  html+='</table>';
   return html;
 }
 async function extractHtmlFromAttachedDocx(d){
   const anexos=await loadAttachments(d.id);
   if(!anexos.length)return{html:null,anexo:null};
-  const assinado=[...anexos].reverse().find(a=>/\.docx$/i.test(a.nome)&&/_ASSINADO/i.test(a.nome));
-  const candidato=assinado||[...anexos].reverse().find(a=>/\.docx$/i.test(a.nome));
+  const assinado=[...anexos].reverse().find(a=>/\.(docx|xlsx)$/i.test(a.nome)&&/_ASSINADO/i.test(a.nome));
+  const candidato=assinado||[...anexos].reverse().find(a=>/\.(docx|xlsx)$/i.test(a.nome));
   if(!candidato)return{html:null,anexo:null};
   try{
     const{data:blob,error}=await supabase.storage.from('anexos').download(candidato.storagePath);
     if(error)throw error;
     const buf=await blob.arrayBuffer();
+    if(/\.xlsx$/i.test(candidato.nome)){
+      const sheetBuf=await readZipEntry(buf,'xl/worksheets/sheet1.xml');
+      if(!sheetBuf)return{html:null,anexo:candidato};
+      const sharedBuf=await readZipEntry(buf,'xl/sharedStrings.xml');
+      const sharedStrings=sharedBuf?parseSharedStrings(new TextDecoder('utf-8').decode(sharedBuf)):[];
+      const sheetXml=new TextDecoder('utf-8').decode(sheetBuf);
+      return{html:xlsxSheetToHtml(sheetXml,sharedStrings),anexo:candidato,tipo:'xlsx'};
+    }
     const xmlBuf=await readZipEntry(buf,'word/document.xml');
     if(!xmlBuf)return{html:null,anexo:candidato};
+    const numberingBuf=await readZipEntry(buf,'word/numbering.xml');
     const xml=new TextDecoder('utf-8').decode(xmlBuf);
-    return{html:docxBodyToHtml(xml),anexo:candidato};
+    const numberingXml=numberingBuf?new TextDecoder('utf-8').decode(numberingBuf):null;
+    return{html:docxBodyToHtml(xml,numberingXml),anexo:candidato,tipo:'docx'};
   }catch(e){console.error('falha ao converter anexo para HTML',e);return{html:null,anexo:candidato,erro:e.message||String(e)};}
+}
+function popHeaderHtml(d){
+  return `<table style="width:100%;border-collapse:collapse;border:2px solid #14233a;margin-bottom:18px;font-family:Arial,Helvetica,sans-serif">
+  <tr>
+    <td rowspan="3" style="width:64px;border-right:2px solid #14233a;padding:6px;text-align:center;vertical-align:middle;background:#f7f9fc">
+      <div style="width:42px;height:42px;border-radius:9px;background:linear-gradient(135deg,#1366c4,#0d4a94);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:10px;font-family:Arial,sans-serif">IBEG</div>
+    </td>
+    <td rowspan="3" style="border-right:2px solid #14233a;padding:8px 14px;vertical-align:middle">
+      <div style="font-size:9.5px;font-weight:700;letter-spacing:.6px;color:#5f6b7d;text-transform:uppercase">Procedimento Operacional Padrão</div>
+      <div style="font-size:15px;font-weight:800;color:#14233a;margin-top:3px;line-height:1.25">${esc(d.titulo)}</div>
+    </td>
+    <td style="padding:4px 10px;font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase;border-bottom:1px solid #ccd3dc;width:70px">Código</td>
+    <td style="padding:4px 10px;font-size:11px;font-weight:700;color:#14233a;font-family:'Courier New',monospace;border-bottom:1px solid #ccd3dc;border-left:1px solid #ccd3dc;width:110px">${esc(d.codigo)}</td>
+  </tr>
+  <tr>
+    <td style="padding:4px 10px;font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase;border-bottom:1px solid #ccd3dc">Revisão</td>
+    <td style="padding:4px 10px;font-size:11px;font-weight:700;color:#14233a;font-family:'Courier New',monospace;border-bottom:1px solid #ccd3dc;border-left:1px solid #ccd3dc">${esc(d.revisaoAtual)}</td>
+  </tr>
+  <tr>
+    <td style="padding:4px 10px;font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase">Vigência</td>
+    <td style="padding:4px 10px;font-size:11px;font-weight:700;color:#14233a;font-family:'Courier New',monospace;border-left:1px solid #ccd3dc">${fmt(d.dataVigencia)}</td>
+  </tr>
+</table>`;
+}
+function popFooterHtml(d){
+  return `<table style="width:100%;border-collapse:collapse;border:2px solid #14233a;margin-top:20px;font-family:Arial,Helvetica,sans-serif">
+  <tr>
+    <td style="padding:8px 12px;width:33.34%;border-right:1px solid #ccd3dc"><div style="font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase">Elaborado por</div><div style="font-size:11px;font-weight:600;color:#14233a;margin-top:3px">${esc(d.elaboradoPor)||'—'}</div></td>
+    <td style="padding:8px 12px;width:33.33%;border-right:1px solid #ccd3dc"><div style="font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase">Revisado por</div><div style="font-size:11px;font-weight:600;color:#14233a;margin-top:3px">${esc(d.revisadoPor)||'—'}</div></td>
+    <td style="padding:8px 12px;width:33.33%"><div style="font-size:9px;font-weight:700;color:#5f6b7d;text-transform:uppercase">Aprovado por</div><div style="font-size:11px;font-weight:600;color:#14233a;margin-top:3px">${esc(d.aprovadoPor)||'—'}</div></td>
+  </tr>
+</table>`;
 }
 async function gerarPdfDoc(id){
   const d=data.find(x=>x.id===id);if(!d)return;
@@ -1092,13 +1261,11 @@ async function gerarPdfDoc(id){
   const fonteNota=r.anexo?`Conteúdo do arquivo anexado: ${esc(r.anexo.nome)}${/_ASSINADO/i.test(r.anexo.nome)?' (versão com assinaturas eletrônicas gravadas)':''}`:'Nenhum arquivo Word anexado a este documento.';
   win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.codigo)} — ${esc(d.titulo)}</title>
   <style>
-    body{font-family:'Calibri','Arial',Helvetica,sans-serif;color:#14233a;padding:40px;max-width:850px;margin:0 auto}
-    h1.doctitle{font-size:20px;margin-bottom:4px}
-    .sub{color:#5f6b7d;font-size:12px;margin-bottom:8px}
-    .src{color:#5f6b7d;font-size:10.5px;font-style:italic;margin-bottom:24px}
-    .meta{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-bottom:24px;font-size:12px}
-    .meta div b{display:block;color:#5f6b7d;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
-    .content{font-size:13px;line-height:1.55;border:1px solid #e2e6ec;border-radius:8px;padding:24px;margin-bottom:24px}
+    @page{margin:22mm 18mm;@bottom-right{content:"Página " counter(page) " de " counter(pages);font-size:9px;color:#93a0b0;font-family:Arial}}
+    body{font-family:'Calibri','Arial',Helvetica,sans-serif;color:#14233a;padding:0;max-width:850px;margin:0 auto}
+    .sub{color:#5f6b7d;font-size:11px;margin:2px 0 4px}
+    .src{color:#5f6b7d;font-size:10.5px;font-style:italic;margin-bottom:18px}
+    .content{font-size:13px;line-height:1.55;padding:0;margin-bottom:10px}
     .content h1{font-size:17px;margin:14px 0 8px}
     .content h2{font-size:15px;margin:14px 0 8px}
     .content h3{font-size:13.5px;margin:12px 0 6px}
@@ -1109,23 +1276,17 @@ async function gerarPdfDoc(id){
     table.hist{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px}
     table.hist th,table.hist td{border:1px solid #e2e6ec;padding:6px 8px;text-align:left}
     table.hist th{background:#eef2f7}
-    .foot{margin-top:30px;font-size:10px;color:#93a0b0}
-    h2.section{font-size:13px;margin:22px 0 8px}
+    .foot-note{margin-top:14px;font-size:10px;color:#93a0b0}
+    h2.section{font-size:12px;margin:20px 0 8px;color:#1366c4;text-transform:uppercase;letter-spacing:.4px}
   </style></head><body>
-  <h1 class="doctitle">${esc(d.codigo)} — ${esc(d.titulo)}</h1>
-  <div class="sub">${esc(d.tipo)} · ${esc(d.setor)} · Revisão ${esc(d.revisaoAtual)} · Status: ${d.cancelado?'Cancelado':d.status}</div>
+  ${popHeaderHtml(d)}
+  <div class="sub">${esc(d.tipo)} · ${esc(d.setor)} · Status: ${d.cancelado?'Cancelado':d.status}</div>
   <div class="src">${fonteNota}</div>
-  <div class="meta">
-    <div><b>Emissão</b>${fmt(d.dataEmissao)}</div>
-    <div><b>Vigência</b>${fmt(d.dataVigencia)}</div>
-    <div><b>Elaborado por</b>${esc(d.elaboradoPor)||'—'}</div>
-    <div><b>Aprovado por</b>${esc(d.aprovadoPor)||'—'}</div>
-  </div>
   <h2 class="section">Conteúdo do arquivo anexado</h2>
   <div class="content">${r.html||'<p>Nenhum conteúdo pôde ser extraído do arquivo anexado.</p>'}</div>
   <h2 class="section">Histórico de revisões</h2>
   <table class="hist"><thead><tr><th>Rev.</th><th>Data</th><th>Descrição</th><th>Responsável</th></tr></thead><tbody>${historicoRows||'<tr><td colspan="4">Sem histórico</td></tr>'}</tbody></table>
-  <div class="foot">Gerado pelo sistema de Controle de Documentos IBEG em ${new Date().toLocaleString('pt-BR')}</div>
+  <div class="foot-note">Gerado pelo sistema de Controle de Documentos IBEG em ${new Date().toLocaleString('pt-BR')}</div>
   <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},300);};<\/script>
   </body></html>`);
   win.document.close();
@@ -1153,10 +1314,8 @@ async function readDoc(id){
   document.getElementById('modal').innerHTML=`
     <div class="modal-head"><span class="pill ${d.cancelado?'obsoleto':d.status.toLowerCase().replace(/ /g,'-')}">${d.cancelado?'Cancelado':d.status}</span><h2 style="margin-left:4px">${esc(d.codigo)} · Rev. ${esc(d.revisaoAtual)}</h2><button class="x" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
-      <div style="font-size:19px;font-weight:800;margin-bottom:4px">${esc(d.titulo)}</div>
-      <div style="color:var(--muted);font-size:13px;margin-bottom:16px">${esc(d.tipo)} · ${esc(d.setor)} · Vigência: ${fmt(d.dataVigencia)}</div>
       ${fonteNota}
-      <div class="docx-reader">${r.html||'<p style="color:var(--faint)">Nenhum conteúdo disponível para leitura.</p>'}</div>
+      <div class="docx-reader">${popHeaderHtml(d)}${r.html||'<p style="color:var(--faint)">Nenhum conteúdo disponível para leitura.</p>'}</div>
     </div>
     <div class="modal-foot">
       <div class="modal-foot-left"></div>
@@ -1324,7 +1483,14 @@ async function archiveVersionAsObsolete(d){
   await saveDocRemote(obsDoc);
   data.unshift(migrateDoc(obsDoc));
   for(const a of existentes){
-    try{await supabase.from('anexos').update({documento_id:obsId}).eq('id',a.id);}catch(e){console.error('falha ao mover anexo para o card obsoleto',e);}
+    try{
+      // copia a referência do anexo para o card obsoleto (mesmo arquivo no Storage — não duplica bytes)
+      const{error:insErr}=await supabase.from('anexos').insert({id:uid(),documento_id:obsId,nome:a.nome,tipo:a.tipo,tamanho:a.tamanho,storage_path:a.storagePath,enviado_por:a.enviadoPor,ts:a.ts});
+      if(insErr)throw insErr;
+      // remove a referência do documento ativo (o arquivo em si continua existindo, só o card obsoleto passa a apontar pra ele)
+      const{error:delErr}=await supabase.from('anexos').delete().eq('id',a.id);
+      if(delErr)throw delErr;
+    }catch(e){console.error('falha ao arquivar anexo como obsoleto',e);toast('Aviso: falha ao arquivar um anexo anterior — '+(e.message||e));}
   }
   await appendAudit('versao_obsoleta',`Versão anterior (rev. ${d.revisaoAtual}) arquivada como card obsoleto com o(s) anexo(s) substituído(s)`,'documento',obsId,d.codigo);
   return obsId;
@@ -1348,7 +1514,7 @@ async function handleAttachmentUpload(id,ev){
     if(upErr)throw upErr;
     const{error:insErr}=await supabase.from('anexos').insert({id:anexoId,documento_id:d.id,nome:f.name,tipo:f.type||'application/octet-stream',tamanho:f.size,storage_path:path,enviado_por:u?u.nome:'—',ts:Date.now()});
     if(insErr)throw insErr;
-    d.anexos=d.anexos||[];d.anexos.push({id:anexoId,nome:f.name,tipo:f.type,tamanho:f.size,storagePath:path,enviadoPor:u?u.nome:'—',ts:Date.now()});
+    d.anexos=await loadAttachments(d.id); // busca de novo do servidor — garante que só o anexo atual aparece, sem depender de estado local otimista
     appendAudit('anexo_adicionado',`Anexo adicionado/atualizado: ${f.name} (${fmtBytes(f.size)})`,'documento',d.id,d.codigo);
     logEvent('updated','info','Anexo adicionado',`${d.codigo} — ${f.name}`,d.id);
     fillFilters();render();viewDoc(id);toast('Anexo enviado');
@@ -1910,6 +2076,7 @@ function openCancelModal(id){
      <div class="field"><label>Confirme sua senha</label><input type="password" id="cn_pw" placeholder="Sua senha"></div>
    </div>
    <div class="modal-foot"><button class="btn btn-secondary" onclick="viewDoc('${id}')">Voltar</button><button class="btn btn-danger" onclick="confirmCancel('${id}')">Confirmar cancelamento</button></div>`;
+  document.getElementById('overlay').classList.add('show');
 }
 async function confirmCancel(id){
   const d=data.find(x=>x.id===id);const u=currentUser();if(!d||!u)return;
@@ -2291,7 +2458,17 @@ function renderNotif(){
 }
 
 function toggleNotif(force){const p=document.getElementById('notifPanel'),o=document.getElementById('notifOverlay');const open=force===undefined?!p.classList.contains('open'):force;p.classList.toggle('open',open);o.classList.toggle('open',open);if(open)renderNotif();}
-function notifMarkAll(){syncDerived().filter(a=>!notifState.dismissed[a.key]).forEach(a=>notifState.read[a.key]=true);notifState.events.forEach(e=>e.read=true);saveNotif();updateBadge();renderNotif();}
+function notifMarkAll(){
+  syncDerived().filter(a=>!notifState.dismissed[a.key]).forEach(a=>notifState.read[a.key]=true);
+  notifState.events.forEach(e=>e.read=true);
+  saveNotif();
+  const unread=targetedNotifs.filter(x=>!x.lida);
+  unread.forEach(n=>n.lida=true);
+  updateBadge();renderNotif();
+  if(unread.length){
+    Promise.all(unread.map(n=>supabase.from('notificacoes').update({lida:true}).eq('id',n.id).catch(()=>{}))).catch(()=>{});
+  }
+}
 function notifDismiss(key,ev){if(ev)ev.stopPropagation();notifState.dismissed[key]=true;saveNotif();updateBadge();renderNotif();}
 function notifOpen(docId,markKey,isEvent,evId){if(isEvent){const e=notifState.events.find(x=>x.id===evId);if(e)e.read=true;}else if(markKey){notifState.read[markKey]=true;}saveNotif();updateBadge();if(docId&&docId!=='null'){toggleNotif(false);viewDoc(docId);}else{renderNotif();}}
 function notifClearEvents(){if(!notifState.events.length)return;if(!confirm('Limpar o histórico de atividades? Os alertas automáticos continuam.'))return;notifState.events=[];saveNotif();updateBadge();renderNotif();}
@@ -2303,19 +2480,45 @@ function boot(){
   fillFilters();updateArrows();buildNav();render();updateFbStatus();checkTamperBanner();
   attachTargetedNotifListener();
 }
+let listenersAttached=false;
+async function ensureDataLoaded(){
+  if(!listenersAttached){
+    listenersAttached=true;
+    await attachUsersListener();
+    await attachDocumentosListener();
+    await attachAuditListener();
+    await seedIfEmpty();
+  }else{
+    // canais em tempo real já estão inscritos — só precisa buscar de novo
+    const{data:rowsU}=await supabase.from('perfis').select('*');users=(rowsU||[]).map(mapPerfil);
+    const{data:rowsD}=await supabase.from('documentos').select('*');data=(rowsD||[]).map(rowToDoc);
+    const{data:rowsA}=await supabase.from('auditoria').select('*').order('seq');auditState={entries:(rowsA||[]).map(mapAudit)};
+    fillFilters();render();buildNav();renderUserArea();checkTamperBanner();
+  }
+}
 async function startApp(){
   const box=document.getElementById('loginBox');
   document.getElementById('loginScreen').style.display='flex';
   box.innerHTML=`<div class="login-logo"><div class="logo-mark" style="background:linear-gradient(135deg,var(--accent),var(--accent-dark));display:grid;place-items:center"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg></div><h1>Controle de Documentos · Qualidade</h1><p>Conectando…</p></div>`;
   try{
     await initSupabase();
-    const{data:sessData}=await supabase.auth.getSession();
-    currentSession=sessData.session;
-    supabase.auth.onAuthStateChange((_event,session)=>{currentSession=session;});
-    await attachUsersListener();
-    await attachDocumentosListener();
-    await attachAuditListener();
-    await seedIfEmpty();
+    // Espera o próprio Supabase confirmar o estado de autenticação (sessão restaurada
+    // ou ausente) antes de decidir se busca dados agora ou só depois do login —
+    // isso evita buscar com uma sessão "quase pronta" e receber resultados vazios
+    // que nunca eram recarregados depois.
+    await new Promise(resolve=>{
+      let done=false;
+      supabase.auth.onAuthStateChange((_event,session)=>{
+        currentSession=session;
+        if(!done){done=true;resolve();}
+      });
+      setTimeout(()=>{if(!done){done=true;resolve();}},4000);
+    });
+    if(currentSession){
+      // sessão já existia (ex.: página recarregada) — pode buscar os dados agora
+      await ensureDataLoaded();
+    }
+    // se não há sessão, os dados só são buscados quando o login for concluído (doLogin -> ensureDataLoaded)
   }catch(e){
     console.error('Falha ao iniciar Supabase',e);
     box.innerHTML=`<div class="login-logo"><h1>Não foi possível conectar</h1><p>Verifique a conexão com a internet e as configurações do projeto Supabase.</p></div><div class="login-err show">${esc(e.message||String(e))}</div>`;
